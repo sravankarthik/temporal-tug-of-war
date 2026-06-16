@@ -1,0 +1,196 @@
+\documentclass[11pt]{article}
+
+\usepackage[review]{acl}
+\usepackage{times}
+\usepackage{latexsym}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{microtype}
+\usepackage{inconsolata}
+\usepackage{graphicx}
+\graphicspath{{figures/}}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+
+\title{The Temporal Tug-of-War: Detecting RAG Conflicts in Diffusion Language Models via Trajectory Variance}
+
+\author{
+  Anonymous Author(s) \\
+  Affiliation \\
+  \texttt{email@domain.edu}
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Retrieval-Augmented Generation (RAG) significantly improves the factual grounding of language models but introduces the risk of knowledge friction when retrieved contexts conflict with the model's parametric memory. While autoregressive models resolve these conflicts causally, Discrete Diffusion Language Models (DLMs) refine sequences globally across a temporal denoising schedule, obfuscating the arbitration process. Inspired by recent trajectory-probing frameworks, we propose the Trajectory Variance Score (TVS), a novel methodology to detect parametric versus external memory conflicts. By modeling the diffusion process as a Markov Decision Process (MDP) and tracking multi-seed variance across the $T=50$ stochastic denoising steps, we extract the temporal dynamics of model confidence. We feed these sequential variance features, along with their temporal derivatives, into an Attention-Augmented Bidirectional Long Short-Term Memory (LSTM) network for binary classification. Our empirical results on LLaDA and DREAM across four datasets (Synthetic, SciQ, PopQA, and CounterFact) demonstrate that TVS successfully captures the temporal "tug-of-war" of knowledge friction, achieving an AUROC of 0.82 on LLaDA and establishing a robust interpretability framework for diffusion-based text generation.
+\end{abstract}
+
+\section{Introduction}
+The adoption of Retrieval-Augmented Generation (RAG) \citep{lewis2020retrieval} has become the standard mechanism for mitigating hallucinations in large language models. However, this architecture introduces a secondary failure mode: knowledge conflict. When an injected RAG context directly contradicts the model's pre-trained parametric memory (e.g., outdated facts or adversarially generated fakes), the model must implicitly arbitrate between its internal prior and the external evidence. 
+
+In standard autoregressive (AR) models, this friction is instantaneous and localized, manifesting as spikes in token-level perplexity during left-to-right decoding. However, the emergence of Discrete Diffusion Language Models (DLMs) like LLaDA \citep{nie2024llada} and DREAM \citep{zheng2024dream} fundamentally alters this paradigm. Unlike AR models, DLMs generate text through an iterative, non-causal denoising process. The resolution of knowledge conflicts is therefore not a single token-emission event, but a temporal "tug-of-war" distributed across the entire diffusion trajectory. 
+
+Recent work in DLM interpretability, such as TraceDet \citep{tracedet2025}, has demonstrated that hidden trajectory features can be extracted post-generation to classify intrinsic hallucinations. Building upon this trajectory-centric view, we introduce the \textbf{Trajectory Variance Score (TVS)}. We hypothesize that forced arbitration between contradictory memory sources induces measurable instability in the intermediate diffusion states. By executing multiple generation runs with varying seeds and extracting the variance of prediction confidences across $T=50$ timesteps, we map the temporal topology of this uncertainty. We then utilize an Attention-Augmented Bidirectional LSTM network, processing both variance and velocity features, to classify these temporal signatures.
+
+Our contributions are threefold:
+1. We formally define the problem of RAG-induced knowledge friction within the discrete diffusion paradigm.
+2. We propose TVS, a multi-seed trajectory probing technique that models the temporal arbitration of conflicting knowledge.
+3. We provide extensive empirical evaluations on LLaDA and DREAM, demonstrating strong conflict detection capabilities across diverse datasets.
+
+\section{Related Work}
+
+\subsection{Hallucination and Conflict Detection in AR-LLMs}
+Hallucination detection in autoregressive models has been extensively studied. Output-based detection leverages signals derived from the generated text, such as semantic entropy \citep{kuhn2023semantic} or lexical similarity. The core intuition is that hallucinated or conflicting responses are associated with lower predictive confidence. Latent-based methods instead probe the hidden representations during a single forward pass, utilizing techniques like Contrast-Consistent Search (CCS) \citep{burns2022discovering} to separate truthful from hallucinated states. However, these methods are uniquely suited to the left-to-right generation paradigm and fail to capture the multi-step refinement of diffusion models.
+
+\subsection{Discrete Diffusion Language Models}
+Discrete Diffusion Language Models have emerged as powerful alternatives to AR models \citep{sahoo2024simple, shi2024simplified}. Models such as LLaDA \citep{nie2024llada} utilize discrete remasking processes to scale up to 8B parameters, achieving performance comparable to leading LLMs. Similarly, DREAM \citep{zheng2024dream} adapts diffusion paradigms for enhanced reasoning. Recent efforts like SPREAD \citep{spread2026} have begun exploring DLMs within the RAG framework, identifying Response Semantic Drift (RSD) and employing query-relevance-guided denoising to keep generation anchored to the query semantics. However, while SPREAD focuses on actively mitigating drift during generation to improve precision, the specific mechanisms of detecting the underlying parametric versus external knowledge conflicts remain underexplored.
+
+\subsection{Trajectory Analysis in Diffusion Models}
+The shift to iterative refinement necessitates new interpretability tools. The most relevant precursor to our work is the TraceDet framework \citep{tracedet2025}, which formulates the denoising process as an action trace and applies the Information Bottleneck principle to extract sub-traces informative of hallucinated outputs. Other contemporary methods have also focused on trajectory features: TDGNet \citep{tdgnet2026} formulates hallucination detection by learning over evolving token-level attention graphs, while OSCAR \citep{oscar2026} computes cross-chain Shannon entropy across parallel denoising chains with randomized reveal orders to detect high-uncertainty positions. While TraceDet, TDGNet, and OSCAR effectively localize intrinsic hallucinations or general uncertainty, they do not isolate the specific phenomenon of RAG-induced knowledge friction. Our work extends trajectory analysis by specifically modeling the temporal dynamics of multi-seed variance—capturing both raw variance and its velocity across the full schedule—to detect the unique "tug-of-war" signature of parametric conflicts.
+
+\section{Background: Diffusion Large Language Models}
+
+\subsection{Formal Formulation of D-LLMs}
+Unlike AR models that rely on the next-token prediction paradigm $P(x_i | x_{<i})$, DLMs generate responses by iterative refinement through a forward noising and backward denoising process over $T$ time steps. 
+
+Let $r = (r_0, \dots, r_T)$ denote the sequence of intermediate texts, where each $r_t \in \mathcal{V}^n$ is a token sequence of length $n$. Here, $r_0$ represents the fully clean, structured text sequence, and $r_T$ represents the fully masked sequence (pure noise). 
+
+Given an input query $p_0$, the \textbf{forward noising process} is defined by a sequence of transition distributions $\{q(r_t | r_{t-1})\}_{t=1}^T$, mathematically expressed as:
+\begin{equation}
+    q(r_{1:T} | r_0) = \prod_{t=1}^T q(r_t | r_{t-1})
+\end{equation}
+This process gradually corrupts the sequence by replacing tokens with a designated `[MASK]` state.
+
+Conversely, the \textbf{reverse denoising process} is parameterized by a neural network defining a sequence of conditional distributions $\{P_\theta(r_0 | r_t, p_0)\}_{t=1}^T$. At each timestep $t > 0$, the model predicts all masked tokens simultaneously from the current state $r_t$, yielding an estimated clean sequence $\tilde{r}_{t-1} \sim P_\theta(r_0 | r_t, p_0)$. Following this prediction, a discrete remasking strategy is applied—typically low-confidence remasking—where a specific fraction $\rho_t$ of the predicted tokens are remasked to form the intermediate state $r_{t-1}$.
+
+\subsection{Denoising as a Markov Decision Process (MDP)}
+To understand how knowledge conflicts manifest in DLMs, it is advantageous to formulate the denoising process as a Markov Decision Process over the decoding steps, expanding on the definitions utilized in recent trajectory analysis \citep{tracedet2025}:
+
+\begin{itemize}
+    \item \textbf{State:} The $t$-th state $s_t = (p_0, r_{T-t})$ in the denoising schedule is defined as the combination of the RAG context $p_0$ and the intermediate, partially masked sequence $r_{T-t}$.
+    \item \textbf{Action:} At state $s_t$, the DLM takes an action $a_t$ by predicting the identity of all masked tokens, generating a full token sequence proposal $\hat{r}_{T-t-1}$ from the parameterized distribution $P_\theta(r_0 | r_{T-t}, p_0)$.
+    \item \textbf{Transition:} Following the action, a fraction of the tokens in $\hat{r}_{T-t-1}$ are remasked based on the predefined noise schedule $\rho_t$. The DLM then transitions to the next state $s_{t+1} = (p_0, r_{T-t-1})$.
+\end{itemize}
+
+Under this MDP framework, a single generation run yields a complete \textit{action trace} $A = \{a_0, a_1, \dots, a_{T-1}\}$.
+
+\subsection{Knowledge Friction in the Action Trace}
+We define \textit{Knowledge Friction} as the latent instability generated during the action $a_t$ when the input condition $p_0$ (the retrieved context) contains a proposition that directly contradicts the model's learned parametric weights $\theta_{true}$. 
+
+In standard generations, the sequence of actions $A$ converges smoothly, as the gradients from the context and the parametric memory pull the sequence toward the same semantic attractor. However, under a RAG conflict, the model experiences a "tug-of-war." The transition dynamics are disrupted because the action $a_t$ oscillates between satisfying the external context $p_0$ and the internal prior $\theta_{true}$. Because DLMs utilize parallel decoding, this friction is not isolated to a single token but is distributed globally across the intermediate action trace.
+
+\section{Methodology: Trajectory Variance Score}
+
+To detect this knowledge friction, we must isolate the temporal instability it creates. We achieve this by analyzing the variance in model confidence across multiple stochastic denoising runs, effectively measuring the divergence of parallel action traces. The end-to-end pipeline of our framework, from dataset filtering to final classification, is illustrated in Figure~\ref{fig:pipeline}.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\columnwidth]{pipeline.png} % Placeholder for the generated pipeline diagram
+\caption{End-to-end evaluation pipeline: Data points undergo strict parametric memory filtering before being injected with RAG fakes. We extract 5 parallel trajectories, compute raw variance and velocity features, and classify them using an Attention-Augmented Bidirectional LSTM.}
+\label{fig:pipeline}
+\end{figure}
+
+\subsection{Parametric Memory Filtering and Trajectory Generation}
+Diffusion models are inherently stochastic; the specific trajectory an action trace $A$ takes from $s_0$ (pure noise) to $s_T$ (final text) depends heavily on the initial random seed governing the remasking logic. Before generating conflict trajectories, we establish a rigorous baseline by filtering the dataset. A fact is only retained if the base DLM correctly generates the true answer from its parametric memory across at least 4 out of $N=5$ parallel seeds. This ensures any subsequent friction is genuinely induced by the RAG context rather than inherent model ignorance.
+
+For a verified RAG prompt $p_0$, we execute $N=5$ independent denoising runs over $T=50$ diffusion timesteps. For each independent run $i$ and timestep $t$, we extract the model's semantic prediction for the target entity and embed it to compute the confidence $P_{i,t}$.
+
+\subsection{TVS Formulation and Velocity}
+In the absence of knowledge friction, all $N$ runs rapidly converge on identical semantic structures, yielding low variance across the parallel traces. Under conflict, the competing pulls of the parametric prior and the injected context cause the unmasking trajectories to diverge significantly before finally crystallizing.
+
+We define the Trajectory Variance Score (TVS) at timestep $t$ as the unbiased sample variance of the semantic predictions across the $N$ independent runs:
+\begin{equation}
+  \text{TVS}_t = \frac{1}{N-1} \sum_{i=1}^{N} (P_{i,t} - \bar{P}_t)^2
+\end{equation}
+where $\bar{P}_t$ is the mean semantic prediction at step $t$. 
+
+Crucially, the raw variance magnitude only captures a static snapshot of uncertainty. The \textit{rate of change} in variance is equally critical for detecting sudden semantic shifts during the "tug-of-war." Thus, we compute the temporal derivative (velocity) of the variance:
+\begin{equation}
+  \Delta \text{TVS}_t = \text{TVS}_t - \text{TVS}_{t-1}
+\end{equation}
+
+Computing these across all timesteps yields a 2-channel temporal feature vector $\mathbf{V} = [(\text{TVS}_1, \Delta \text{TVS}_1), \dots, (\text{TVS}_{50}, \Delta \text{TVS}_{50})] \in \mathbb{R}^{T \times 2}$, which maps the topological landscape and dynamics of generation uncertainty.
+
+\subsection{Attention-Augmented Classification Framework}
+Because the resolution of a RAG conflict is a sequential process—exhibiting phases of early exploration, peak friction during the mid-steps, and final crystallization—we formulate conflict detection as a sequence classification task using an \textbf{Attention-Augmented Bidirectional LSTM}.
+
+The 2-channel trajectory vector $\mathbf{V}$ is passed through a 2-layer Bidirectional LSTM (hidden size = 32 per direction), allowing the model to contextualize variance spikes globally across the denoising schedule. To explicitly capture the critical "mid-step" friction phases, the recurrent outputs are processed by a dynamic sequence attention layer, producing a weighted context vector. This representation is then fed into a Multi-Layer Perceptron (MLP) head with batch normalization and dropout to prevent overfitting, outputting a binary classification $\hat{y} \in \{0, 1\}$, where $1$ indicates a RAG conflict.
+
+\section{Experimental Setup}
+
+\subsection{Models and Datasets}
+We evaluate TVS on two recent DLMs: \textbf{LLaDA} and \textbf{DREAM}. 
+To establish a robust testbed, we utilize four diverse datasets: \textbf{Synthetic} (custom factual queries), \textbf{SciQ} \citep{welbl2017crowdsourcing}, \textbf{PopQA} \citep{mallick2023generate}, and \textbf{CounterFact} \citep{meng2022locating}. 
+
+For each dataset, we first filter for baseline instances where the base model accurately predicts the \texttt{True Answer} from its parametric memory with high confidence. We then synthetically inject a contradictory \texttt{RAG Fake} into the context window. The final test dataset is strictly balanced between Clean ($y=0$) and Conflict ($y=1$) samples.
+
+\subsection{Implementation Details}
+Generations were executed using $N=5$ seeds over a discrete diffusion schedule of $T=50$ timesteps. The Attention-Augmented Bidirectional LSTM classifier comprises 2 hidden layers with 32 units per direction. It was trained using Binary Cross-Entropy loss, optimized via AdamW with a weight decay of $1\text{e-}4$, and employed a Cosine Annealing learning rate schedule over 75 epochs. To ensure robust evaluation, we utilized a strict 70/15/15 stratified split for the training, validation, and testing sets.
+
+\section{Results}
+
+\subsection{Overall Detection Performance}
+The aggregate performance of the TVS-LSTM detector on the test set is detailed in Table~\ref{tab:overall_results}. The framework achieves strong performance on both models. LLaDA demonstrates higher overall detectability (76.47\% Accuracy, 0.8235 AUROC) compared to DREAM (73.50\% Accuracy, 0.7991 AUROC). Notably, the precision for detecting conflicts ($y=1$) is high across both models (0.79 for LLaDA, 0.76 for DREAM), indicating that when TVS identifies a variance spike in the action trace, it is a highly reliable indicator of parametric friction.
+
+\begin{table}[h]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Model} & \textbf{Acc (\%)} & \textbf{AUROC} & \textbf{Prec} & \textbf{Rec} & \textbf{F1} \\
+\midrule
+LLaDA & 76.47 & 0.8235 & 0.79 & 0.72 & 0.75 \\
+DREAM & 73.50 & 0.7991 & 0.76 & 0.69 & 0.72 \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Overall conflict detection performance on the test set. Precision, Recall, and F1 are reported for the Conflict (1) class.}
+\label{tab:overall_results}
+\end{table}
+
+\subsection{Dataset-Specific Dynamics}
+Table~\ref{tab:dataset_breakdown} provides the accuracy breakdown across the four evaluated datasets. 
+
+\begin{table}[h]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Model} & \textbf{Synth.} & \textbf{SciQ} & \textbf{PopQA} & \textbf{CounterFact} \\
+\midrule
+LLaDA & 79.12 & 77.38 & 80.26 & 75.00 \\
+DREAM & 80.63 & 67.37 & 69.70 & 50.00 \\
+\bottomrule
+\end{tabular}%
+}
+\caption{Detection accuracy (\%) breakdown across specific dataset domains.}
+\label{tab:dataset_breakdown}
+\end{table}
+
+The results reveal model-specific sensitivities to the domain of knowledge. While both models perform exceptionally well on the Synthetic dataset (approx. 80\%), DREAM struggles significantly with the CounterFact dataset (50.00\% accuracy, effectively random chance). This suggests that for DREAM, counterfactual injections either completely override the parametric memory without triggering friction, or the conflict is resolved too early in the MDP trace to be captured by standard variance thresholding. Conversely, LLaDA maintains highly consistent detectability (75\% - 80\%) across all domain types.
+
+\section{Analysis: Interpreting the Tug-of-War}
+Visualizing the average TVS curves in Figure~\ref{fig:avg_tvs} provides crucial interpretability into the MDP trajectory, revealing that knowledge friction manifests as a sustained elevation in generation uncertainty.
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.9\columnwidth]{llada-avg-tvs.png}\\[2ex]
+    \includegraphics[width=0.9\columnwidth]{dream-avg-tvs.png}
+    \caption{Average TVS trajectories across denoising steps for LLaDA (top) and DREAM (bottom). The sustained elevation in cross-seed variance is clearly visible under RAG conflict compared to the clean baseline.}
+    \label{fig:avg_tvs}
+\end{figure}
+
+As shown in Figure~\ref{fig:avg_tvs}, in non-conflict scenarios (blue solid lines), the models follow a standard denoising trajectory where semantic variance decays as the generation crystallizes. Under a RAG conflict (red dashed lines), the TVS trajectory exhibits a distinct, sustained gap of elevated variance. 
+
+For LLaDA, the competing gradients of the parametric prior and the RAG fake clash extensively during the early-to-mid steps ($t \in [0, 25]$). This conflict maintains a significantly higher cross-seed variance and delays the final crystallization. Even after the model mostly converges ($t > 30$), a residual variance gap persists. DREAM exhibits a remarkably similar separation during its active semantic resolution phase ($t > 20$, noting the inverted generation step indexing). In both models, it is this persistent "tug-of-war"—characterized by elevated variance magnitude and delayed convergence—that the Attention-Augmented LSTM successfully captures as the temporal signature of parametric friction.
+
+\section{Conclusion}
+This paper introduces the Trajectory Variance Score (TVS), an interpretability framework for detecting RAG conflicts in Discrete Diffusion Language Models. By formalizing generation as an MDP and capturing both the raw variance and velocity of multi-seed trajectories, we achieve robust detection of knowledge friction. Our implementation of an Attention-Augmented Bidirectional LSTM successfully models these temporal dynamics, establishing a powerful new probing technique for safeguarding the integrity of diffusion-based text generation.
+
+\bibliography{custom}
+
+\end{document}
