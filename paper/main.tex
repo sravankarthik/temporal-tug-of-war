@@ -81,7 +81,9 @@ Under this MDP framework, a single generation run yields a complete \textit{acti
 \subsection{Knowledge Friction in the Action Trace}
 We define \textit{Knowledge Friction} as the latent instability generated during the action $a_t$ when the input condition $p_0$ (the retrieved context) contains a proposition that directly contradicts the model's learned parametric weights $\theta_{true}$. 
 
-In standard generations, the sequence of actions $A$ converges smoothly, as the gradients from the context and the parametric memory pull the sequence toward the same semantic attractor. However, under a RAG conflict, the model experiences a "tug-of-war." The transition dynamics are disrupted because the action $a_t$ oscillates between satisfying the external context $p_0$ and the internal prior $\theta_{true}$. Because DLMs utilize parallel decoding, this friction is not isolated to a single token but is distributed globally across the intermediate action trace.
+For instance, consider the query: \textit{"What is the capital of France?"} The model's parametric memory strongly associates this with \textit{"Paris"} ($\theta_{true}$). However, if a conflicting RAG context states, \textit{"The capital of France is London"} ($p_0$), a direct contradiction occurs.
+
+In standard generations (where $p_0$ aligns with $\theta_{true}$), the sequence of actions $A$ converges smoothly, as the gradients from the context and the parametric memory pull the sequence toward the same semantic attractor (e.g., \textit{"Paris"}). However, under a RAG conflict, the model experiences a "tug-of-war." The transition dynamics are disrupted because the action $a_t$ oscillates between satisfying the external context $p_0$ (e.g., \textit{"London"}) and the internal prior $\theta_{true}$ (e.g., \textit{"Paris"}). Because DLMs utilize parallel decoding, this friction is not isolated to a single token but is distributed globally across the intermediate action trace.
 
 \section{Methodology: Trajectory Variance Score}
 
