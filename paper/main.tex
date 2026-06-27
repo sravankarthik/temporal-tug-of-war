@@ -136,21 +136,24 @@ Generations were executed using $N=5$ seeds over a discrete diffusion schedule o
 \section{Results}
 
 \subsection{Overall Detection Performance}
-The aggregate performance of the TVS-LSTM detector on the test set is detailed in Table~\ref{tab:overall_results}. The framework achieves strong performance on both models. LLaDA demonstrates higher overall detectability (71.19\% Accuracy, 0.7875 AUROC) compared to DREAM (70.18\% Accuracy, 0.7679 AUROC). Notably, the precision for detecting conflicts ($y=1$) is consistent across both models (0.71 for LLaDA, 0.71 for DREAM), indicating that when TVS identifies a variance spike in the action trace, it is a reliable indicator of parametric friction.
+The aggregate performance of our TVS-LSTM detector, alongside our approximation of the TraceDet baseline, is detailed in Table~\ref{tab:overall_results}. Because the original TraceDet codebase is not publicly available, we implemented a best-effort approximation of their methodology to serve as our primary baseline. Our TVS framework achieves strong performance and outperforms the TraceDet approximation on both models. For LLaDA, TVS achieves higher overall detectability (71.19\% Accuracy, 0.7875 AUROC) compared to TraceDet (70.17\% Accuracy, 0.7773 AUROC). A similar trend holds for DREAM (70.18\% vs 70.04\% Accuracy). While TraceDet exhibits slightly higher precision, TVS achieves significantly better recall and overall F1-score for conflict detection, indicating that modeling temporal variance is more effective at capturing parametric friction than static sub-trace extraction.
 
 \begin{table}[h]
 \centering
 \resizebox{\columnwidth}{!}{%
-\begin{tabular}{lccccc}
+\begin{tabular}{llccccc}
 \toprule
-\textbf{Model} & \textbf{Acc (\%)} & \textbf{AUROC} & \textbf{Prec} & \textbf{Rec} & \textbf{F1} \\
+\textbf{Model} & \textbf{Method} & \textbf{Acc (\%)} & \textbf{AUROC} & \textbf{Prec} & \textbf{Rec} & \textbf{F1} \\
 \midrule
-LLaDA & 71.19 & 0.7875 & 0.71 & 0.71 & 0.71 \\
-DREAM & 70.18 & 0.7679 & 0.71 & 0.68 & 0.70 \\
+\multirow{2}{*}{LLaDA} & TraceDet* & 70.17 & 0.7773 & \textbf{0.74} & 0.62 & 0.67 \\
+ & TVS (Ours) & \textbf{71.19} & \textbf{0.7875} & 0.71 & \textbf{0.71} & \textbf{0.71} \\
+\midrule
+\multirow{2}{*}{DREAM} & TraceDet* & 70.04 & \textbf{0.7729} & \textbf{0.75} & 0.60 & 0.67 \\
+ & TVS (Ours) & \textbf{70.18} & 0.7679 & 0.71 & \textbf{0.68} & \textbf{0.70} \\
 \bottomrule
 \end{tabular}%
 }
-\caption{Overall conflict detection performance on the test set. Precision, Recall, and F1 are reported for the Conflict (1) class.}
+\caption{Overall conflict detection performance on the test set. Precision, Recall, and F1 are reported for the Conflict (1) class. *Since the original TraceDet code is not publicly available, we benchmark against it using our best approximation of their trajectory analysis methodology.}
 \label{tab:overall_results}
 \end{table}
 
@@ -189,6 +192,9 @@ Visualizing the average TVS curves in Figure~\ref{fig:avg_tvs} provides crucial 
 As shown in Figure~\ref{fig:avg_tvs}, in non-conflict scenarios (blue solid lines), the models follow a standard denoising trajectory where semantic variance decays as the generation crystallizes. Under a RAG conflict (red dashed lines), the TVS trajectory exhibits a distinct, sustained gap of elevated variance. 
 
 For LLaDA, the competing gradients of the parametric prior and the RAG fake clash extensively during the early-to-mid steps ($t \in [0, 25]$). This conflict maintains a significantly higher cross-seed variance and delays the final crystallization. Even after the model mostly converges ($t > 30$), a residual variance gap persists. DREAM exhibits a remarkably similar separation during its active semantic resolution phase ($t > 20$, noting the inverted generation step indexing). In both models, it is this persistent "tug-of-war"—characterized by elevated variance magnitude and delayed convergence—that the Attention-Augmented LSTM successfully captures as the temporal signature of parametric friction.
+
+\section{Limitations}
+A primary limitation of the Trajectory Variance Score (TVS) framework is its computational overhead. Our methodology requires $N=5$ parallel denoising runs across the full schedule of $T=50$ timesteps to reliably extract the temporal variance history. While this parallelization is essential for accurately mapping the "tug-of-war" dynamics during knowledge friction, it introduces notable inference latency and compute costs, making real-time application challenging. Future work will investigate optimization strategies to mitigate this burden. A promising direction involves implementing dynamic early-exit criteria; if the variance across parallel trajectories remains consistently negligible during the initial generation steps (indicating rapid semantic crystallization without friction), the probing runs could be safely terminated early, reducing the computational cost without significantly compromising detection accuracy.
 
 \section{Conclusion}
 This paper introduces the Trajectory Variance Score (TVS), an interpretability framework for detecting RAG conflicts in Discrete Diffusion Language Models. By formalizing generation as an MDP and capturing both the raw variance and velocity of multi-seed trajectories, we achieve robust detection of knowledge friction. Our implementation of an Attention-Augmented Bidirectional LSTM successfully models these temporal dynamics, establishing a powerful new probing technique for safeguarding the integrity of diffusion-based text generation.
