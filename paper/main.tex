@@ -26,7 +26,7 @@
 \maketitle
 
 \begin{abstract}
-Retrieval-Augmented Generation (RAG) significantly improves the factual grounding of language models but introduces the risk of knowledge friction when retrieved contexts conflict with the model's parametric memory. While autoregressive models resolve these conflicts causally, Discrete Diffusion Language Models (DLMs) refine sequences globally across a temporal denoising schedule, obfuscating the arbitration process. Inspired by recent trajectory-probing frameworks, we propose the Trajectory Variance Score (TVS), a novel methodology to detect parametric versus external memory conflicts. By modeling the diffusion process as a Markov Decision Process (MDP) and tracking multi-seed variance across the $T=50$ stochastic denoising steps, we extract the temporal dynamics of model confidence. We feed these sequential variance features, along with their temporal derivatives, into an Attention-Augmented Bidirectional Long Short-Term Memory (LSTM) network for binary classification. Our empirical results on LLaDA and DREAM across four datasets (Synthetic, SciQ, PopQA, and CounterFact) demonstrate that TVS successfully captures the temporal "tug-of-war" of knowledge friction, achieving an AUROC of 0.82 on LLaDA and establishing a robust interpretability framework for diffusion-based text generation.
+Retrieval-Augmented Generation (RAG) significantly improves the factual grounding of language models but introduces the risk of knowledge friction when retrieved contexts conflict with the model's parametric memory. While autoregressive models resolve these conflicts causally, Discrete Diffusion Language Models (DLMs) refine sequences globally across a temporal denoising schedule, obfuscating the arbitration process. Inspired by recent trajectory-probing frameworks, we propose the Trajectory Variance Score (TVS), a novel methodology to detect parametric versus external memory conflicts. By modeling the diffusion process as a Markov Decision Process (MDP) and tracking multi-seed variance across the $T=50$ stochastic denoising steps, we extract the temporal dynamics of model confidence. We feed these sequential variance features, along with their temporal derivatives, into an Attention-Augmented Bidirectional Long Short-Term Memory (LSTM) network for binary classification. Our empirical results on LLaDA and DREAM across four datasets (Synthetic, SciQ, PopQA, and CounterFact) demonstrate that TVS successfully captures the temporal "tug-of-war" of knowledge friction, achieving an AUROC of 0.79 on LLaDA and establishing a robust interpretability framework for diffusion-based text generation.
 \end{abstract}
 
 \section{Introduction}
@@ -136,7 +136,7 @@ Generations were executed using $N=5$ seeds over a discrete diffusion schedule o
 \section{Results}
 
 \subsection{Overall Detection Performance}
-The aggregate performance of the TVS-LSTM detector on the test set is detailed in Table~\ref{tab:overall_results}. The framework achieves strong performance on both models. LLaDA demonstrates higher overall detectability (76.47\% Accuracy, 0.8235 AUROC) compared to DREAM (73.50\% Accuracy, 0.7991 AUROC). Notably, the precision for detecting conflicts ($y=1$) is high across both models (0.79 for LLaDA, 0.76 for DREAM), indicating that when TVS identifies a variance spike in the action trace, it is a highly reliable indicator of parametric friction.
+The aggregate performance of the TVS-LSTM detector on the test set is detailed in Table~\ref{tab:overall_results}. The framework achieves strong performance on both models. LLaDA demonstrates higher overall detectability (71.19\% Accuracy, 0.7875 AUROC) compared to DREAM (70.18\% Accuracy, 0.7679 AUROC). Notably, the precision for detecting conflicts ($y=1$) is consistent across both models (0.71 for LLaDA, 0.71 for DREAM), indicating that when TVS identifies a variance spike in the action trace, it is a reliable indicator of parametric friction.
 
 \begin{table}[h]
 \centering
@@ -145,8 +145,8 @@ The aggregate performance of the TVS-LSTM detector on the test set is detailed i
 \toprule
 \textbf{Model} & \textbf{Acc (\%)} & \textbf{AUROC} & \textbf{Prec} & \textbf{Rec} & \textbf{F1} \\
 \midrule
-LLaDA & 76.47 & 0.8235 & 0.79 & 0.72 & 0.75 \\
-DREAM & 73.50 & 0.7991 & 0.76 & 0.69 & 0.72 \\
+LLaDA & 71.19 & 0.7875 & 0.71 & 0.71 & 0.71 \\
+DREAM & 70.18 & 0.7679 & 0.71 & 0.68 & 0.70 \\
 \bottomrule
 \end{tabular}%
 }
@@ -164,8 +164,8 @@ Table~\ref{tab:dataset_breakdown} provides the accuracy breakdown across the fou
 \toprule
 \textbf{Model} & \textbf{Synth.} & \textbf{SciQ} & \textbf{PopQA} & \textbf{CounterFact} \\
 \midrule
-LLaDA & 79.12 & 77.38 & 80.26 & 75.00 \\
-DREAM & 80.63 & 67.37 & 69.70 & 50.00 \\
+LLaDA & 79.67 & 75.41 & 71.51 & 63.62 \\
+DREAM & 82.76 & 70.57 & 69.52 & 59.24 \\
 \bottomrule
 \end{tabular}%
 }
@@ -173,7 +173,7 @@ DREAM & 80.63 & 67.37 & 69.70 & 50.00 \\
 \label{tab:dataset_breakdown}
 \end{table}
 
-The results reveal model-specific sensitivities to the domain of knowledge. While both models perform exceptionally well on the Synthetic dataset (approx. 80\%), DREAM struggles significantly with the CounterFact dataset (50.00\% accuracy, effectively random chance). This suggests that for DREAM, counterfactual injections either completely override the parametric memory without triggering friction, or the conflict is resolved too early in the MDP trace to be captured by standard variance thresholding. Conversely, LLaDA maintains highly consistent detectability (75\% - 80\%) across all domain types.
+The results reveal model-specific sensitivities to the domain of knowledge. While both models perform exceptionally well on the Synthetic dataset (approx. 80\% - 83\%), both struggle with the CounterFact dataset, particularly DREAM (59.24\% accuracy). This suggests that for DREAM, counterfactual injections either override the parametric memory without triggering significant friction, or the conflict is resolved too early in the MDP trace to be fully captured by standard variance thresholding. Conversely, LLaDA maintains slightly better detectability (63.62\%) on counterfactuals, while showing relatively consistent performance (71\% - 80\%) across other domain types.
 
 \section{Analysis: Interpreting the Tug-of-War}
 Visualizing the average TVS curves in Figure~\ref{fig:avg_tvs} provides crucial interpretability into the MDP trajectory, revealing that knowledge friction manifests as a sustained elevation in generation uncertainty.
