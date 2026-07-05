@@ -39,16 +39,16 @@ draw_arrow(ax, x_center, y_ds, x_center, y_filter+bh, "Extract Base Facts")
 draw_box(ax, x_center-bw/2, y_filter, bw, bh, "2. Parametric Memory Filter", facecolor='#ffebee')
 draw_arrow(ax, x_center, y_filter, x_center, y_noise+bh, "4/5 Seeds Correct\nInject Clean/Fake Context")
 
-draw_box(ax, x_center-bw/2, y_noise, bw, bh, "3. Multi-Seed Denoising\n(N=5 parallel runs, T=50 steps)", facecolor='#e8f5e9')
+draw_box(ax, x_center-bw/2, y_noise, bw, bh, "3. Multi-Seed Denoising\n(N=2 parallel runs, T=50 steps)", facecolor='#e8f5e9')
 draw_arrow(ax, x_center, y_noise, x_center, y_extract+bh, "Extract step-by-step history")
 
 draw_box(ax, x_center-bw/2, y_extract, bw, bh, "4. Semantic Extraction\n(SentenceTransformer Embeddings)", facecolor='#f3e5f5')
 draw_arrow(ax, x_center, y_extract, x_center, y_tvs+bh, "Pairwise cosine distance")
 
-draw_box(ax, x_center-bw/2, y_tvs, bw, bh, "5. Compute TVS & Velocity\n(2-Channel Temporal Tensor)", facecolor='#fff3e0')
-draw_arrow(ax, x_center, y_tvs, x_center, y_lstm+bh, "Input Vector [50 x 2]")
+draw_box(ax, x_center-bw/2, y_tvs, bw, bh, "5. Compute TVS\n(1-Channel Temporal Tensor)", facecolor='#fff3e0')
+draw_arrow(ax, x_center, y_tvs, x_center, y_lstm+bh, "Input Vector [50]")
 
-draw_box(ax, x_center-bw/2, y_lstm, bw, bh, "6. Attention-Augmented\nBidirectional LSTM", facecolor='#e1f5fe')
+draw_box(ax, x_center-bw/2, y_lstm, bw, bh, "6. Logistic Regression\nClassifier", facecolor='#e1f5fe')
 draw_arrow(ax, x_center, y_lstm, x_center, y_out+bh, "Binary Classification")
 
 draw_box(ax, x_center-bw/2, y_out, bw, bh, "7. Conflict Detected (1) / Clean (0)", facecolor='#ffebee')
