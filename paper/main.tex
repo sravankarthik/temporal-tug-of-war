@@ -113,7 +113,43 @@ This yields a feature vector $\mathbf{v} = [\text{TVS}_1, \dots, \text{TVS}_{50}
 \subsection{Classification using Logistic Regression}
 We classify the TVS feature vector using a \textbf{Logistic Regression} model (\texttt{max\_iter=2000}, $\ell_2$ regularization). This linear model achieves competitive accuracy, confirming that the conflict signal is globally distributed across the dispersion curve.
 
+\section{Visualizing the Tug of War}
+Before evaluating the classification performance, we first demonstrate the primary contribution of TVS: providing a clear visual interpretability window into the diffusion trajectory. The following visualizations are generated using the LLaDA and Dream 7B models on our evaluation dataset (detailed fully in Section~\ref{sec:setup}).
+
+Figure~\ref{fig:avg_tvs} plots the average Cosine Dispersion (TVS) over the 50 step denoising trajectory for LLaDA, revealing that knowledge friction manifests as a sustained, three phase elevation in semantic divergence across seeds.
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.9\columnwidth]{tvs_conflict_graph.png}
+    \caption{Average TVS across the 50 step denoising trajectory for LLaDA (Clean: blue solid; RAG Conflict: red dashed; shaded = SEM). Three phases are visible: \textbf{Zone 1} ($t \in [0, 15]$): Early Exploration---both conditions exhibit high dispersion. \textbf{Zone 2} ($t \in [15, 28]$): Mid Step Friction---the clean curve decays while the conflict curve remains elevated (gap $\approx 0.15$). \textbf{Zone 3} ($t \in [28, 50]$): Delayed Crystallization---both curves collapse, but a residual gap persists ($\Delta \approx 0.07$).}
+    \label{fig:avg_tvs}
+\end{figure}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=0.9\columnwidth]{tvs_conflict_graph_dream.png}
+    \caption{Average TVS across the 50 step denoising trajectory for Dream 7B ($N=2$ seeds; Clean: blue solid; RAG Conflict: red dashed; shaded = SEM). The same three phase structure is observed, but with a narrower clean versus conflict gap, consistent with Dream's smoother remasking dynamics based on entropy.}
+    \label{fig:avg_tvs_dream}
+\end{figure}
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=\columnwidth]{tvs_raw_dynamics_with_errorbars.png}
+    \caption{Detailed TVS dynamics for LLaDA with $\pm$std shading ($N=2$ seeds). The conflict curve (red) starts at $\approx 0.51$ versus clean (green) at $\approx 0.39$, maintaining a consistent gap through $t\approx28$ before both converge---with conflict retaining a higher residual dispersion ($\approx 0.07$ versus $\approx 0.01$).}
+    \label{fig:tvs_dynamics}
+\end{figure}
+
+On LLaDA, the conflict trajectory (red dashed) starts at $\text{CD} \approx 0.51$ versus $0.39$ for clean (blue solid), maintaining a gap of $\sim$0.1 to 0.15 throughout Zone 1 and Zone 2. Both curves collapse rapidly after $t \approx 28$, but a residual gap of $\approx 0.07$ persists at convergence, representing the crystallization gap that distinguishes conflict samples even after generation terminates.
+
+Critically, Dream 7B (Figure~\ref{fig:avg_tvs_dream}) exhibits the same three phase temporal structure, providing qualitative validation of the TVS framework across architectures. The separation between clean and conflict is narrower on Dream, which aligns with its entropy based remasking that produces smoother, less oscillatory trajectories. This narrower gap directly explains Dream's lower classification accuracy (Table~\ref{tab:overall_results}) and its greater sensitivity to seed count (Table~\ref{tab:ablation_seeds}): the weaker signal per pair requires more parallel runs to surface reliably.
+
+This three phase structure directly motivates the temporal feature representation: a simple classifier over the dispersion curve captures the sustained divergence without requiring a sequential model.
+
+\subsection{The Value of the Temporal Trajectory}
+To explicitly address whether the intermediate diffusion trajectory provides signal beyond standard multiple sample variance at the output level (analogous to autoregressive semantic entropy), we evaluated a Logistic Regression trained strictly on the final crystallization step ($\text{TVS}_{50}$). This trivial baseline achieved only $60.14\% \pm 0.57\%$ accuracy. The $\sim$11\% performance drop compared to the full TVS vector ($71.05\%$) empirically proves that the mid step tug of war dynamics contain critical diagnostic signal for detecting knowledge friction that is lost if one only evaluates the final generated output.
+
 \section{Experimental Setup}
+\label{sec:setup}
 
 \subsection{Models and Datasets}
 We evaluate TVS on two distinct diffusion language models: \textbf{LLaDA-8B-Instruct} \citep{nie2024llada}, which remasks tokens using low confidence, and \textbf{Dream-v0-Instruct-7B} \citep{zheng2024dream}, which remasks tokens based on entropy. This pairing allows us to assess whether TVS generalizes across different denoising strategies.
@@ -124,6 +160,7 @@ Our testbed comprises four datasets: \textbf{Synthetic} (custom queries generate
 The evaluation pipeline is identical for both models. Trajectories were collected using $N=2$ to $5$ seeds over $T=50$ timesteps. Sentence embeddings use the frozen \texttt{all-mpnet-base-v2} model. The Logistic Regression is trained on the pooled, flattened TVS feature vectors (\texttt{max\_iter=2000}, $\ell_2$ regularization). All results are reported as the mean plus or minus the standard deviation over 5 independent random splits for training and testing.
 
 \section{Results}
+Given that TVS provides a strong visual signal of knowledge friction, we evaluate whether a simple classifier can automatically detect this conflict.
 
 \subsection{Overall Detection Performance}
 Table~\ref{tab:overall_results} presents the overall conflict detection performance of our TVS approach on both LLaDA and Dream 7B. As an informal point of reference, we also include a best effort replication of TraceDet's Variational Information Bottleneck trajectory classifier (the original codebase is not publicly available and has not been formally verified on this task). On LLaDA, our simple linear TVS classifier achieves $70.76\% \pm 0.62\%$ accuracy, performing similarly to this approximated baseline. On Dream 7B, TVS-LR achieves $63.91\% \pm 1.17\%$, confirming that the conflict signal transfers across architectures, albeit with reduced magnitude. Notably, TVS-LR slightly outperforms TraceDet on Dream in AUROC ($0.6896$ vs.\ $0.6876$), suggesting that the simpler approach based on embeddings is comparably robust across architectures.
@@ -184,6 +221,29 @@ Both models perform best on Synthetic facts and worst on CounterFact, fully pres
 
 Dream's accuracy across datasets is uniformly lower, with the largest gaps on Synthetic ($-12.5\%$) and PopQA ($-12.8\%$). However, the consistent preservation of the difficulty ordering across two distinct diffusion models, each with fundamentally different remasking strategies, provides strong evidence that dataset properties (such as conflict type and phrasing complexity) drive the relative strength of the TVS signal rather than artifacts specific to the model.
 
+\subsection{Architectural Dynamics: Entropy vs.\ Confidence}
+To understand why Dream 7B exhibits a narrower TVS gap and smoother trajectory dynamics than LLaDA 8B, we must examine the micro-level mechanics of their respective denoising strategies. We introduce the \textbf{Entity Flip Rate}, a discrete metric tracking how often the model's predicted semantic core completely changes across a single 50-step generation trajectory.
+
+The empirical difference between the two architectures is stark. Under RAG conflict, LLaDA averages 22.46 semantic flips ($\pm 0.42$ SEM). Because its remasking strategy is binary and relies strictly on the argmax probability, competing knowledge vectors (parametric vs.\ contextual) cause the model to violently oscillate between competing entities. Conversely, Dream 7B averages only 3.71 flips ($\pm 0.30$ SEM) under conflict. By evaluating the broader entropy distribution rather than a strict confidence threshold, Dream delays its semantic commitment, exploring non-committal tokens earlier in the trajectory and crystallizing the entity only once the conflict is structurally resolved.
+
+Crucially, however, the data confirms that knowledge friction is a universal phenomenon. Both architectures exhibit a statistically significant elevation in semantic flips when subjected to a conflict compared to a clean context (LLaDA: $+4.62$ flips; Dream: $+1.05$ flips). This proves that the Trajectory Variance Score is not capturing random stochastic noise, but rather measuring a genuine, architecture-agnostic mechanical struggle as discrete diffusion models attempt to reconcile contradictory knowledge sources.
+
+\begin{figure}[ht]
+    \centering
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{entity_flip_rate_llada.png}
+        \caption{Entity Flip Rate for LLaDA 8B, illustrating high volatility and binary oscillation between entities under RAG conflict.}
+        \label{fig:flip_llada}
+    \end{minipage}\hfill
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{entity_flip_rate_dream.png}
+        \caption{Entity Flip Rate for Dream 7B, showcasing its entropy-based remasking which delays semantic commitment.}
+        \label{fig:flip_dream}
+    \end{minipage}
+\end{figure}
+
 \section{Ablation Studies}
 \label{sec:ablation}
 
@@ -231,40 +291,6 @@ Table~\ref{tab:ablation_seeds} evaluates the effect of reducing the number of pa
 \end{table}
 
 The two models exhibit strikingly different seed sensitivities. LLaDA's accuracy is essentially flat from $N=2$ to $N=5$ ($+0.47\%$, within error bars), confirming that two parallel runs are sufficient. In contrast, Dream benefits substantially: accuracy rises from $63.91\%$ to $69.62\%$ ($+5.71\%$), nearly closing the gap across architectures. This asymmetry is likely attributable to Dream's remasking based on entropy, which produces smoother denoising trajectories with less variance per run. With only $N=2$ seeds, the pairwise cosine distance is computed from a single pair, making the signal highly sensitive to stochastic noise. Increasing to $N=5$ yields $\binom{5}{2}=10$ pairwise comparisons, substantially improving the robustness of the TVS estimate and amplifying the conflict signal in Dream's smoother trajectory space.
-
-
-\section{Analysis: Interpreting the Tug of War}
-Figure~\ref{fig:avg_tvs} plots the average Cosine Dispersion (TVS) over the 50 step denoising trajectory for LLaDA, revealing that knowledge friction manifests as a sustained, three phase elevation in semantic divergence across seeds.
-
-\begin{figure}[ht]
-    \centering
-    \includegraphics[width=0.9\columnwidth]{tvs_conflict_graph.png}
-    \caption{Average TVS across the 50 step denoising trajectory for LLaDA (Clean: blue solid; RAG Conflict: red dashed; shaded = SEM). Three phases are visible: \textbf{Zone 1} ($t \in [0, 15]$): Early Exploration---both conditions exhibit high dispersion. \textbf{Zone 2} ($t \in [15, 28]$): Mid Step Friction---the clean curve decays while the conflict curve remains elevated (gap $\approx 0.15$). \textbf{Zone 3} ($t \in [28, 50]$): Delayed Crystallization---both curves collapse, but a residual gap persists ($\Delta \approx 0.07$).}
-    \label{fig:avg_tvs}
-\end{figure}
-
-\begin{figure}[ht]
-    \centering
-    \includegraphics[width=0.9\columnwidth]{tvs_conflict_graph_dream.png}
-    \caption{Average TVS across the 50 step denoising trajectory for Dream 7B ($N=2$ seeds; Clean: blue solid; RAG Conflict: red dashed; shaded = SEM). The same three phase structure is observed, but with a narrower clean versus conflict gap, consistent with Dream's smoother remasking dynamics based on entropy.}
-    \label{fig:avg_tvs_dream}
-\end{figure}
-
-\begin{figure}[ht]
-    \centering
-    \includegraphics[width=\columnwidth]{tvs_raw_dynamics_with_errorbars.png}
-    \caption{Detailed TVS dynamics for LLaDA with $\pm$std shading ($N=2$ seeds). The conflict curve (red) starts at $\approx 0.51$ versus clean (green) at $\approx 0.39$, maintaining a consistent gap through $t\approx28$ before both converge---with conflict retaining a higher residual dispersion ($\approx 0.07$ versus $\approx 0.01$).}
-    \label{fig:tvs_dynamics}
-\end{figure}
-
-On LLaDA, the conflict trajectory (red dashed) starts at $\text{CD} \approx 0.51$ versus $0.39$ for clean (blue solid), maintaining a gap of $\sim$0.1 to 0.15 throughout Zone 1 and Zone 2. Both curves collapse rapidly after $t \approx 28$, but a residual gap of $\approx 0.07$ persists at convergence, representing the crystallization gap that distinguishes conflict samples even after generation terminates.
-
-Critically, Dream 7B (Figure~\ref{fig:avg_tvs_dream}) exhibits the same three phase temporal structure, providing qualitative validation of the TVS framework across architectures. The separation between clean and conflict is narrower on Dream, which aligns with its entropy based remasking that produces smoother, less oscillatory trajectories. This narrower gap directly explains Dream's lower classification accuracy (Table~\ref{tab:overall_results}) and its greater sensitivity to seed count (Table~\ref{tab:ablation_seeds}): the weaker signal per pair requires more parallel runs to surface reliably.
-
-This three phase structure directly motivates the temporal feature representation: a simple classifier over the dispersion curve captures the sustained divergence without requiring a sequential model.
-
-\subsection{The Value of the Temporal Trajectory}
-To explicitly address whether the intermediate diffusion trajectory provides signal beyond standard multiple sample variance at the output level (analogous to autoregressive semantic entropy), we evaluated a Logistic Regression trained strictly on the final crystallization step ($\text{TVS}_{50}$). This trivial baseline achieved only $60.14\% \pm 0.57\%$ accuracy. The $\sim$11\% performance drop compared to the full TVS vector ($71.05\%$) empirically proves that the mid step tug of war dynamics contain critical diagnostic signal for detecting knowledge friction that is lost if one only evaluates the final generated output.
 
 \section{Conclusion}
 We introduced the Trajectory Variance Score (TVS), a simple and interpretable method for detecting knowledge conflicts caused by RAG in discrete diffusion language models. By computing the mean pairwise cosine distance across $N=2$ stochastic denoising trajectories at each timestep, TVS produces a feature vector that represents the entire trajectory. We demonstrate that a simple Logistic Regression classifier over this vector achieves competitive detection accuracy, proving that no complex sequential modeling is required to extract the conflict signal. The TVS curve directly visualizes the temporal tug of war between parametric and contextual attractors as a three phase dynamics profile. Evaluation across two distinct diffusion models, LLaDA (remasking with low confidence) and Dream 7B (remasking based on entropy), demonstrates that the TVS signal, the three phase temporal dynamics, and the sufficiency of linear classifiers all generalize across architectures. The architecture dependent seed sensitivity we observe (Dream benefits substantially from $N{>}2$, while LLaDA does not) provides a practical guideline: the optimal seed count should be calibrated per model. With as few as two parallel inference runs, TVS is a computationally lightweight and interpretable diagnostic for investigating knowledge friction in diffusion language models.
