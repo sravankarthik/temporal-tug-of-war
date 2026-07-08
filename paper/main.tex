@@ -26,7 +26,7 @@
 \maketitle
 
 \begin{abstract}
-Retrieval Augmented Generation (RAG) introduces a specific failure mode in discrete diffusion language models: when a retrieved context contradicts what the model learned during training, the iterative denoising process becomes a visible battleground between competing knowledge sources. We propose the \textbf{Trajectory Variance Score (TVS)}, a simple and interpretable method for detecting these RAG conflicts. By computing the mean pairwise cosine distance of answer embeddings across independent stochastic denoising trajectories, TVS captures the temporal tug of war between parametric and contextual attractors. Our method is computationally lightweight and requires only two parallel inference runs. Furthermore, we demonstrate that a basic Logistic Regression classifier achieves competitive accuracy for conflict detection without needing complex sequential modeling. We evaluate TVS across four diverse datasets (Synthetic, SciQ, PopQA, CounterFact) on two distinct diffusion models, LLaDA and Dream 7B, demonstrating that the TVS signal and its key properties transfer across different architectures.
+Retrieval Augmented Generation (RAG) introduces a specific failure mode in discrete diffusion language models: when a retrieved context contradicts what the model learned during training, the iterative denoising process becomes a visible battleground between competing knowledge sources. We identify temporal semantic divergence as an observable for detecting these RAG conflicts. As one implementation, we introduce the \textbf{Trajectory Variance Score (TVS)}, a simple and interpretable method to capture this divergence. By computing the mean pairwise cosine distance of answer embeddings across independent stochastic denoising trajectories, TVS captures the temporal tug of war between parametric and contextual attractors. Our method is computationally lightweight and requires only two parallel inference runs. Furthermore, we demonstrate that a basic Logistic Regression classifier achieves competitive accuracy for conflict detection without needing complex sequential modeling. We evaluate TVS across four diverse datasets (Synthetic, SciQ, PopQA, CounterFact) on two distinct diffusion models, LLaDA and Dream 7B, demonstrating that the TVS signal and its key properties transfer across different architectures.
 \end{abstract}
 
 \section{Introduction}
@@ -38,8 +38,8 @@ Recent work in interpreting diffusion models, such as TraceDet \citep{tracedet20
 
 Our contributions are:
 \begin{enumerate}
-    \item We formally define the problem of knowledge friction caused by RAG in the discrete diffusion paradigm.
-    \item We propose \textbf{TVS}, computed as the mean pairwise cosine distance of sentence embeddings across parallel seeds at each denoising timestep. This provides an interpretable measure of semantic divergence over the stochastic trajectory without relying on logits.
+    \item We describe the problem of conflict induced instability caused by RAG in the discrete diffusion paradigm, which we refer to as knowledge friction.
+    \item We identify temporal semantic divergence as a key observable for this friction. We implement \textbf{TVS}, computed as the mean pairwise cosine distance of sentence embeddings across parallel seeds at each denoising timestep, to measure it. This provides an interpretable measure of semantic divergence over the stochastic trajectory without relying on logits.
     \item We demonstrate that the TVS signal does not require complex sequential modeling. A simple Logistic Regression classifier over the flattened TVS vector achieves competitive accuracy for conflict detection, matching the performance of recurrent architectures.
     \item We validate the generality of TVS across two distinct diffusion models, LLaDA (remasking using low confidence) and Dream 7B (remasking based on entropy). We show that the three phase temporal dynamics, the sufficiency of linear classifiers, and the difficulty ordering across datasets all transfer, while also revealing that seed sensitivity depends on the architecture.
 \end{enumerate}
@@ -97,7 +97,7 @@ To detect this knowledge friction, we isolate the temporal instability it create
 \subsection{Parametric Memory Filtering and Trajectory Generation}
 Diffusion models are inherently stochastic; each denoising trajectory depends on the initial random seed governing the remasking schedule. Before generating conflict trajectories, we apply a rigorous filter for parametric memory: a fact is retained only if the base model correctly generates the true answer across at least 4 out of $N=5$ independent seeds. This ensures that any subsequent friction is genuinely caused by the RAG context rather than inherent model ignorance. After filtering, \textbf{2,947 facts} survived for LLaDA evaluation (yielding 5,894 balanced sample pairs that are either clean or conflicting).
 
-For each verified fact, we execute $N=2$ to $5$ independent stochastic denoising runs over $T=50$ diffusion timesteps. At each run $i$ and timestep $t$, we decode the predicted token sequence. We isolate the answer entity from the full generation by matching exact substrings against the target, and we embed it using the \texttt{all-mpnet-base-v2} sentence encoder to obtain embedding $\mathbf{e}_{i,t} \in \mathbb{R}^d$.
+For each verified fact, we execute $N=2$ to $5$ independent stochastic denoising runs over $T=50$ diffusion timesteps. At each run $i$ and timestep $t$, we decode the predicted token sequence. We isolate the core answer entity using a robust fuzzy matching extraction function based on sequence matching. This ignores structural jitter by finding the longest contiguous match between the predicted text and the base sentence, defaulting to the raw output if the match size is small, and applying non-alphanumeric filtering. We then embed the extracted entity using the \texttt{all-mpnet-base-v2} sentence encoder to obtain embedding $\mathbf{e}_{i,t} \in \mathbb{R}^d$.
 
 \subsection{TVS Formulation}
 In the absence of knowledge friction, all $N$ runs rapidly converge on identical semantic structures, yielding low divergence across seeds. Under conflict, competing knowledge sources cause the denoising trajectories to diverge before finally crystallizing.
@@ -146,7 +146,7 @@ Critically, Dream 7B (Figure~\ref{fig:avg_tvs_dream}) exhibits the same three ph
 This three phase structure directly motivates the temporal feature representation: a simple classifier over the dispersion curve captures the sustained divergence without requiring a sequential model.
 
 \subsection{The Value of the Temporal Trajectory}
-To explicitly address whether the intermediate diffusion trajectory provides signal beyond standard multiple sample variance at the output level (analogous to autoregressive semantic entropy), we evaluated a Logistic Regression trained strictly on the final crystallization step ($\text{TVS}_{50}$). This trivial baseline achieved only $60.14\% \pm 0.57\%$ accuracy. The $\sim$11\% performance drop compared to the full TVS vector ($71.05\%$) empirically proves that the mid step tug of war dynamics contain critical diagnostic signal for detecting knowledge friction that is lost if one only evaluates the final generated output.
+To explicitly address whether the intermediate diffusion trajectory provides signal beyond standard multiple sample variance at the output level (analogous to autoregressive semantic entropy), we evaluated a Logistic Regression trained strictly on the final crystallization step ($\text{TVS}_{50}$). This trivial baseline achieved only $60.14\% \pm 0.57\%$ accuracy. The $\sim$10\% performance drop compared to the full TVS vector ($70.10\%$) empirically supports the hypothesis that the mid step tug of war dynamics contain critical diagnostic signal for detecting knowledge friction that is lost if one only evaluates the final generated output.
 
 \section{Experimental Setup}
 \label{sec:setup}
@@ -163,7 +163,7 @@ The evaluation pipeline is identical for both models. Trajectories were collecte
 Given that TVS provides a strong visual signal of knowledge friction, we evaluate whether a simple classifier can automatically detect this conflict.
 
 \subsection{Overall Detection Performance}
-Table~\ref{tab:overall_results} presents the overall conflict detection performance of our TVS approach on both LLaDA and Dream 7B. As an informal point of reference, we also include a best effort replication of TraceDet's Variational Information Bottleneck trajectory classifier (the original codebase is not publicly available and has not been formally verified on this task). On LLaDA, our simple linear TVS classifier achieves $70.76\% \pm 0.62\%$ accuracy, performing similarly to this approximated baseline. On Dream 7B, TVS-LR achieves $63.91\% \pm 1.17\%$, confirming that the conflict signal transfers across architectures, albeit with reduced magnitude. Notably, TVS-LR slightly outperforms TraceDet on Dream in AUROC ($0.6896$ vs.\ $0.6876$), suggesting that the simpler approach based on embeddings is comparably robust across architectures.
+Table~\ref{tab:overall_results} presents the overall conflict detection performance of our TVS approach on both LLaDA and Dream 7B. As an informal point of reference, we also include a best effort replication of TraceDet's Variational Information Bottleneck trajectory classifier (the original codebase is not publicly available and has not been formally verified on this task). On LLaDA, our simple linear TVS classifier achieves $70.10\% \pm 1.27\%$ accuracy, performing similarly to this approximated baseline. On Dream 7B, TVS-LR achieves $63.29\% \pm 1.21\%$, confirming that the conflict signal transfers across architectures, albeit with reduced magnitude. While TraceDet achieves a slightly higher AUROC on Dream ($0.6876$ vs.\ $0.6697$), the simpler approach based on embeddings remains comparably robust across architectures.
 
 \begin{table}[h]
 \centering
@@ -173,7 +173,7 @@ Table~\ref{tab:overall_results} presents the overall conflict detection performa
 \textbf{Method} & \textbf{LLaDA Acc (\%)} & \textbf{LLaDA AUROC} & \textbf{Dream Acc (\%)} & \textbf{Dream AUROC} \\
 \midrule
 TraceDet* & $71.34 \pm 0.66$ & $0.7865 \pm 0.0078$ & $64.56 \pm 0.56$ & $0.6876 \pm 0.0056$ \\
-TVS-LR (Ours) & $70.76 \pm 0.62$ & $0.7725 \pm 0.0082$ & $63.91 \pm 1.17$ & $0.6896 \pm 0.0101$ \\
+TVS-LR (Ours) & $70.10 \pm 1.27$ & $0.7647 \pm 0.0125$ & $63.29 \pm 1.21$ & $0.6697 \pm 0.0071$ \\
 \bottomrule
 \end{tabular}%
 }
@@ -188,9 +188,9 @@ TVS-LR (Ours) & $70.76 \pm 0.62$ & $0.7725 \pm 0.0082$ & $63.91 \pm 1.17$ & $0.6
 \toprule
 \textbf{Metric} & \textbf{LLaDA (\%)} & \textbf{Dream (\%)} \\
 \midrule
-Precision & $72.95 \pm 1.32$ & $66.13 \pm 0.91$ \\
-Recall & $66.05 \pm 1.46$ & $56.95 \pm 3.10$ \\
-F1-Score & $69.30 \pm 0.60$ & $61.16 \pm 2.00$ \\
+Precision & $71.55 \pm 1.97$ & $65.19 \pm 1.05$ \\
+Recall & $66.86 \pm 0.91$ & $56.95 \pm 2.80$ \\
+F1-Score & $69.11 \pm 0.90$ & $60.77 \pm 1.89$ \\
 \bottomrule
 \end{tabular}%
 }
@@ -208,8 +208,8 @@ Table~\ref{tab:dataset_breakdown} provides the accuracy breakdown per domain (LR
 \toprule
 \textbf{Model} & \textbf{Synth.} & \textbf{SciQ} & \textbf{PopQA} & \textbf{CounterFact} \\
 \midrule
-LLaDA & $77.31 \pm 5.92$ & $74.52 \pm 1.44$ & $72.34 \pm 1.35$ & $61.80 \pm 2.48$ \\
-Dream & $64.82 \pm 4.24$ & $65.63 \pm 1.54$ & $59.59 \pm 3.94$ & $58.16 \pm 5.60$ \\
+LLaDA & $76.92 \pm 5.11$ & $73.74 \pm 1.53$ & $70.34 \pm 2.41$ & $61.54 \pm 4.20$ \\
+Dream & $64.17 \pm 5.12$ & $65.71 \pm 1.82$ & $58.76 \pm 4.37$ & $54.69 \pm 3.50$ \\
 \bottomrule
 \end{tabular}%
 }
@@ -226,7 +226,7 @@ To understand why Dream 7B exhibits a narrower TVS gap and smoother trajectory d
 
 The empirical difference between the two architectures is stark. Under RAG conflict, LLaDA averages 22.46 semantic flips ($\pm 0.42$ SEM). Because its remasking strategy is binary and relies strictly on the argmax probability, competing knowledge vectors (parametric vs.\ contextual) cause the model to violently oscillate between competing entities. Conversely, Dream 7B averages only 3.71 flips ($\pm 0.30$ SEM) under conflict. By evaluating the broader entropy distribution rather than a strict confidence threshold, Dream delays its semantic commitment, exploring non-committal tokens earlier in the trajectory and crystallizing the entity only once the conflict is structurally resolved.
 
-Crucially, however, the data confirms that knowledge friction is a universal phenomenon. Both architectures exhibit a statistically significant elevation in semantic flips when subjected to a conflict compared to a clean context (LLaDA: $+4.62$ flips; Dream: $+1.05$ flips). This proves that the Trajectory Variance Score is not capturing random stochastic noise, but rather measuring a genuine, architecture-agnostic mechanical struggle as discrete diffusion models attempt to reconcile contradictory knowledge sources.
+Crucially, however, the data confirms that knowledge friction is a universal phenomenon. Both architectures exhibit a statistically significant elevation in semantic flips when subjected to a conflict compared to a clean context (LLaDA: $+4.62$ flips; Dream: $+1.05$ flips). This is consistent with the hypothesis that the Trajectory Variance Score is not capturing random stochastic noise, but rather measuring a genuine, architecture-agnostic mechanical struggle as discrete diffusion models attempt to reconcile contradictory knowledge sources.
 
 \begin{figure}[ht]
     \centering
@@ -293,10 +293,10 @@ Table~\ref{tab:ablation_seeds} evaluates the effect of reducing the number of pa
 The two models exhibit strikingly different seed sensitivities. LLaDA's accuracy is essentially flat from $N=2$ to $N=5$ ($+0.47\%$, within error bars), confirming that two parallel runs are sufficient. In contrast, Dream benefits substantially: accuracy rises from $63.91\%$ to $69.62\%$ ($+5.71\%$), nearly closing the gap across architectures. This asymmetry is likely attributable to Dream's remasking based on entropy, which produces smoother denoising trajectories with less variance per run. With only $N=2$ seeds, the pairwise cosine distance is computed from a single pair, making the signal highly sensitive to stochastic noise. Increasing to $N=5$ yields $\binom{5}{2}=10$ pairwise comparisons, substantially improving the robustness of the TVS estimate and amplifying the conflict signal in Dream's smoother trajectory space.
 
 \section{Conclusion}
-We introduced the Trajectory Variance Score (TVS), a simple and interpretable method for detecting knowledge conflicts caused by RAG in discrete diffusion language models. By computing the mean pairwise cosine distance across $N=2$ stochastic denoising trajectories at each timestep, TVS produces a feature vector that represents the entire trajectory. We demonstrate that a simple Logistic Regression classifier over this vector achieves competitive detection accuracy, proving that no complex sequential modeling is required to extract the conflict signal. The TVS curve directly visualizes the temporal tug of war between parametric and contextual attractors as a three phase dynamics profile. Evaluation across two distinct diffusion models, LLaDA (remasking with low confidence) and Dream 7B (remasking based on entropy), demonstrates that the TVS signal, the three phase temporal dynamics, and the sufficiency of linear classifiers all generalize across architectures. The architecture dependent seed sensitivity we observe (Dream benefits substantially from $N{>}2$, while LLaDA does not) provides a practical guideline: the optimal seed count should be calibrated per model. With as few as two parallel inference runs, TVS is a computationally lightweight and interpretable diagnostic for investigating knowledge friction in diffusion language models.
+We introduced the Trajectory Variance Score (TVS), a simple and interpretable method for detecting knowledge conflicts caused by RAG in discrete diffusion language models. By computing the mean pairwise cosine distance across $N=2$ stochastic denoising trajectories at each timestep, TVS produces a feature vector that represents the entire trajectory. We demonstrate that a simple Logistic Regression classifier over this vector achieves competitive detection accuracy, suggesting that no complex sequential modeling is required to extract the conflict signal. The TVS curve directly visualizes the temporal tug of war between parametric and contextual attractors as a three phase dynamics profile. Evaluation across two distinct diffusion models, LLaDA (remasking with low confidence) and Dream 7B (remasking based on entropy), demonstrates that the TVS signal, the three phase temporal dynamics, and the sufficiency of linear classifiers all generalize across architectures. The architecture dependent seed sensitivity we observe (Dream benefits substantially from $N{>}2$, while LLaDA does not) provides a practical guideline: the optimal seed count should be calibrated per model. With as few as two parallel inference runs, TVS is a computationally lightweight and interpretable diagnostic for investigating knowledge friction in diffusion language models.
 
 \section{Limitations}
-TVS requires multiple parallel denoising runs, which introduces inference overhead compared to single pass methods. Additionally, our pipeline relies on exact substring matching to isolate answer entities; this rigid extraction step is a potential failure point for valid paraphrases or partial matches, leading to unquantified extraction failure rates. A further limitation is that TVS relies on a parametric memory filter that itself requires $N=5$ generation runs at evaluation time; exploring lighter filtering strategies is a promising direction for future work. Finally, while we demonstrate generality across two diffusion models, TVS accuracy is dependent on the architecture: Dream 7B achieves $\sim$64\% accuracy with $N=2$ seeds versus LLaDA's $\sim$71\%, and models with smoother denoising dynamics may require more parallel runs to surface a reliable conflict signal. Whether TVS generalizes to diffusion models with substantially different architectures or training regimes remains an open question.
+TVS requires multiple parallel denoising runs, which introduces inference overhead compared to single pass methods. While we have mitigated extraction failures by employing robust fuzzy matching to isolate answer entities, this heuristic approach could still potentially fail on complex paraphrases, leading to a small but unquantified extraction failure rate. A further limitation is that TVS relies on a parametric memory filter that itself requires $N=5$ generation runs at evaluation time; exploring lighter filtering strategies is a promising direction for future work. Finally, while we demonstrate generality across two diffusion models, TVS accuracy is dependent on the architecture: Dream 7B achieves $\sim$63\% accuracy with $N=2$ seeds versus LLaDA's $\sim$70\%, and models with smoother denoising dynamics may require more parallel runs to surface a reliable conflict signal. Whether TVS generalizes to diffusion models with substantially different architectures or training regimes remains an open question.
 
 \section*{Ethics Statement}
 As language models are increasingly deployed in real world applications via Retrieval Augmented Generation, their susceptibility to knowledge conflicts poses significant risks of propagating misinformation or adversarial fakes. The Trajectory Variance Score (TVS) provides an interpretability mechanism to detect and intercept these hallucinations before they reach the end user. While TVS significantly enhances the transparency of discrete diffusion models, it should not be treated as a standalone safeguard. It is intended to complement, rather than replace, standard fact checking pipelines, ensuring that AI systems remain trustworthy and aligned with factual reality.
