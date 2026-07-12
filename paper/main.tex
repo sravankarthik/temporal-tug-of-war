@@ -47,7 +47,9 @@ Our contributions are:
 \section{Related Work}
 
 \subsection{Hallucination and Conflict Detection in AR-LLMs}
-Researchers have extensively studied hallucination detection in autoregressive models. Methods based on output leverage signals derived from the generated text, such as semantic entropy \citep{kuhn2023semantic} or lexical similarity. The core intuition is that hallucinated or conflicting responses correspond to lower predictive confidence. On the other hand, methods based on latent states probe the hidden representations during a single forward pass, using techniques like Contrast Consistent Search \citep{burns2022discovering} to separate truthful states from hallucinated ones. However, these methods are uniquely suited to decoding from left to right and fail to capture the multiple steps of refinement in diffusion models.
+Researchers have extensively studied hallucination detection in autoregressive models. Methods based on output leverage signals derived from the generated text, such as semantic entropy \citep{kuhn2023semantic} or lexical similarity. The core intuition is that hallucinated or conflicting responses correspond to lower predictive confidence. On the other hand, methods based on latent states probe the hidden representations during a single forward pass, using techniques like Contrast Consistent Search \citep{burns2022discovering} to separate truthful states from hallucinated ones.
+
+More recently, the specific phenomenon of knowledge conflict in Retrieval Augmented Generation has drawn significant attention. When a model's internal parametric knowledge conflicts with external retrieved documents \citep{mallen2023entity}, autoregressive LLMs often struggle, sometimes silently hallucinating or merging contradictory facts. Recent frameworks address this by developing conflict-aware RAG systems, such as ConflictRAG \citep{wang2026conflictrag}, which detects conflicts before generation, or by using multi-agent debates like Madam-RAG \citep{wang2025retrieval} to reach a disambiguated consensus. Other approaches intervene at the decoding level, such as COCOA \citep{khandelwal2025cocoa}, which uses token-level measures like entropy to adaptively prioritize either the context or parametric memory. However, these methods are uniquely suited to decoding from left to right and fail to capture the multiple steps of refinement in diffusion models.
 
 \subsection{Discrete Diffusion Language Models}
 Discrete diffusion language models have emerged as alternatives to autoregressive models \citep{sahoo2024simple, shi2024simplified}. Models such as LLaDA \citep{nie2024llada} use discrete remasking processes to scale up to 8 billion parameters, achieving performance comparable to leading language models. Similarly, DREAM \citep{zheng2024dream} adapts diffusion paradigms for enhanced reasoning. Recent efforts like SPREAD \citep{spread2026} have begun exploring diffusion models within the RAG framework. SPREAD identifies Response Semantic Drift and uses denoising guided by query relevance to keep the generation anchored to the query semantics. Furthermore, while recent work like Adaptive Retrieval Augmented Masked Diffusion \citep{aram2026} attempts to force alignment using adaptive logit guidance, our work is fundamentally different because it provides a window for interpretation after the fact without altering the generation process. Consequently, the specific mechanisms for detecting conflicts between internal parametric knowledge and external knowledge remain underexplored.
@@ -224,25 +226,25 @@ Dream's accuracy across datasets is uniformly lower, with the largest gaps on Sy
 \subsection{Architectural Dynamics: Entropy vs.\ Confidence}
 To understand why Dream 7B exhibits a narrower TVS gap and smoother trajectory dynamics than LLaDA 8B, we must examine the micro-level mechanics of their respective denoising strategies. We introduce the \textbf{Entity Flip Rate}, a discrete metric tracking how often the model's predicted semantic core completely changes across a single 50-step generation trajectory.
 
-The empirical difference between the two architectures is stark. Under RAG conflict, LLaDA averages 22.46 semantic flips ($\pm 0.42$ SEM). Because its remasking strategy is binary and relies strictly on the argmax probability, competing knowledge vectors (parametric vs.\ contextual) cause the model to violently oscillate between competing entities. Conversely, Dream 7B averages only 3.71 flips ($\pm 0.30$ SEM) under conflict. By evaluating the broader entropy distribution rather than a strict confidence threshold, Dream delays its semantic commitment, exploring non-committal tokens earlier in the trajectory and crystallizing the entity only once the conflict is structurally resolved.
+The empirical difference between the two architectures is stark (see Table~\ref{tab:entity_flips}). Under RAG conflict, LLaDA averages 22.46 semantic flips ($\pm 0.42$ SEM). Because its remasking strategy is binary and relies strictly on the argmax probability, competing knowledge vectors (parametric vs.\ contextual) cause the model to violently oscillate between competing entities. Conversely, Dream 7B averages only 3.71 flips ($\pm 0.30$ SEM) under conflict. By evaluating the broader entropy distribution rather than a strict confidence threshold, Dream delays its semantic commitment, exploring non-committal tokens earlier in the trajectory and crystallizing the entity only once the conflict is structurally resolved.
 
 Crucially, however, the data confirms that knowledge friction is a universal phenomenon. Both architectures exhibit a statistically significant elevation in semantic flips when subjected to a conflict compared to a clean context (LLaDA: $+4.62$ flips; Dream: $+1.05$ flips). This is consistent with the hypothesis that the Trajectory Variance Score is not capturing random stochastic noise, but rather measuring a genuine, architecture-agnostic mechanical struggle as discrete diffusion models attempt to reconcile contradictory knowledge sources.
 
-\begin{figure}[ht]
+\begin{table}[ht]
     \centering
-    \begin{minipage}{0.48\textwidth}
-        \centering
-        \includegraphics[width=\linewidth]{entity_flip_rate_llada.png}
-        \caption{Entity Flip Rate for LLaDA 8B, illustrating high volatility and binary oscillation between entities under RAG conflict.}
-        \label{fig:flip_llada}
-    \end{minipage}\hfill
-    \begin{minipage}{0.48\textwidth}
-        \centering
-        \includegraphics[width=\linewidth]{entity_flip_rate_dream.png}
-        \caption{Entity Flip Rate for Dream 7B, showcasing its entropy-based remasking which delays semantic commitment.}
-        \label{fig:flip_dream}
-    \end{minipage}
-\end{figure}
+    \resizebox{\columnwidth}{!}{%
+    \begin{tabular}{lccc}
+        \toprule
+        \textbf{Model} & \textbf{Clean Context} & \textbf{RAG Conflict} & \textbf{$\Delta$ (Elevation)} \\
+        \midrule
+        LLaDA 8B & $17.84$ & $22.46 \pm 0.42$ & $+4.62$ \\
+        Dream 7B & $2.66$ & $3.71 \pm 0.30$ & $+1.05$ \\
+        \bottomrule
+    \end{tabular}%
+    }
+    \caption{Entity Flip Rate across architectures under clean and conflicting RAG contexts. Both models exhibit a statistically significant elevation in semantic flips when subjected to a conflict. LLaDA's confidence-based remasking results in significantly higher baseline volatility and conflict oscillation compared to Dream's smoother entropy-based approach.}
+    \label{tab:entity_flips}
+\end{table}
 
 \section{Ablation Studies}
 \label{sec:ablation}
